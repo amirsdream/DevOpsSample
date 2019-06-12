@@ -1,0 +1,158 @@
+//JenkinsPythonMicroserviceKubernetesStaging sample
+def remote = [:]
+def storage = [:]
+def database = [:]
+def app = [:]
+pipeline {
+    agent any
+        environment {
+            PATH='/usr/local/bin:/usr/bin:/bin'
+        }
+    stages {
+        stage('Checkout'){
+            steps { notifyBuild('STARTED')
+                git branch: 'test', credentialsId: 'e364d583-3cad-4c3c-9645-1d8b7a18eb72', url: 'git@192.168.2.50:root/electionapi.git'
+                updateGitlabCommitStatus(name: 'jenkins-build', state: 'pending')
+            }
+        }
+        stage('Initialize') {
+            steps {
+                script{
+                    remote.name = 'kubernetes'
+                    remote.host = '192.168.2.70'
+                    remote.user = 'root'
+                    remote.password = '123654789Btk'
+                    remote.allowAnyHosts = true
+                    storage.name = 'kubernetes2'
+                    storage.host = '192.168.2.71'
+                    storage.user = 'root'
+                    storage.password = '123654789Btk'
+                    storage.allowAnyHosts = true
+                    // database.name = "${env.JOB_NAME}"
+                    database.user = "amir"
+                    database.password = "123654789Btk"
+                    // databse.host = "${env.JOB_NAME}-mysql"
+                    database.port = "3306"
+                    app.name = "result"
+                }
+                sh 'cp /home/betik/microservices/django/* .'
+            }
+        }
+        
+        stage('SonarQube analysis') { 
+            steps{
+                withSonarQubeEnv('SonarqubeServer'){
+                    sh 'sonar-scanner ' + 
+                    '-Dsonar.projectKey=election-backend ' +
+                    '-Dsonar.sources=/var/lib/jenkins/workspace/election-api ' +
+                    '-Dsonar.scm.provider=git ' +
+                    '-Dsonar.sourceEncoding=UTF-8 ' +
+                    '-Dsonar.report.path=/tmp/.scannerwork/scanner-report ' +
+                    '-Dsonar.host.url=http://192.168.2.50:9200 ' +
+                    '-Dsonar.login=9bc8ff39f46ccc3336397015789b8add90900b05 '
+                }
+            }
+        }
+        
+        stage('change settings.py '){
+            steps {
+                sh "ls;"
+                sh "cd ${app.name};cp /home/betik/microservices/manipulator/mp.py .;python3 mp.py ${env.JOB_NAME} ${database.user} ${database.password} ${env.JOB_NAME}-mysql ${database.port}"
+            }
+        }
+        
+        stage('Docker build') {
+            steps {
+            sh "docker image build -t 192.168.2.50:8083/${env.JOB_NAME}:latest . "
+            }
+        }
+        stage('Docker push to private registery') {
+            steps {
+            sh "docker push 192.168.2.50:8083/${env.JOB_NAME}:latest"
+            sh "docker rmi 192.168.2.50:8083/${env.JOB_NAME}:latest"
+            }
+        }
+        stage('create configs on kubernetes cluster'){
+            steps {
+            sshCommand remote: remote, command: "cd /root/microservice/; ls -al;python3 mpt.py ${env.JOB_NAME} ${app.name}"
+            }
+        }
+        
+        stage('create namespace'){
+            steps {
+            sshCommand remote: remote, command: "kubectl create namespace ${env.JOB_NAME} || true"
+            sshCommand remote: remote, command: "kubectl create secret docker-registry regcred${env.JOB_NAME} --docker-server=http://192.168.2.50:8084 --docker-username=admin --docker-password=admin123 --namespace=${env.JOB_NAME} || true"
+            sshCommand remote: remote, command: "cd /root/microservice/${env.JOB_NAME};kubectl apply -f persistentVolume.yaml --namespace=${env.JOB_NAME};kubectl apply -f persistentVolumeClaim.yaml --namespace=${env.JOB_NAME}"
+            sshCommand remote: remote, command: "cd /root/microservice/${env.JOB_NAME};kubectl apply -f persistentVolumestaticdata.yaml --namespace=${env.JOB_NAME};kubectl apply -f persistentVolumeClaimstaticdata.yaml --namespace=${env.JOB_NAME}"
+            }
+        }
+        stage('install database'){
+            steps {
+            sshCommand remote: storage, command: "mkdir -p /mnt/disk/vol1/${env.JOB_NAME};mkdir -p /mnt/disk/vol1/${env.JOB_NAME}-data"
+            sshCommand remote: remote, command: "cd /root/microservice/${env.JOB_NAME}; helm install --name ${env.JOB_NAME}-mysql --values mysql-value.yaml stable/mysql --namespace=${env.JOB_NAME} || true"
+            }
+        }
+        
+        stage('apply conf to kubernetes'){
+            steps {
+                sshCommand remote: remote, command: "cd /root/microservice/${env.JOB_NAME};kubectl delete -f deployment.yaml --namespace=${env.JOB_NAME} || true;"
+                sshCommand remote: remote, command: "cd /root/microservice/${env.JOB_NAME};kubectl apply -f configmap.yaml --namespace=${env.JOB_NAME};kubectl apply -f deployment.yaml --namespace=${env.JOB_NAME};kubectl apply -f service.yaml --namespace=${env.JOB_NAME};"
+            }
+        }
+        
+        stage('kubernetes post job'){
+            steps {
+                sshCommand remote: remote, command: "cd /root/microservice/${env.JOB_NAME};kubectl delete -f ingress.yaml --namespace=${env.JOB_NAME} || true ;kubectl apply -f ingress.yaml --namespace=${env.JOB_NAME};kubectl apply -f migratejob.yaml --namespace=${env.JOB_NAME};sleep 60;kubectl delete -f migratejob.yaml --namespace=${env.JOB_NAME} || true"
+                sshCommand remote: remote, command: "cd /root/microservice/${env.JOB_NAME};kubectl apply -f collectstaticjob.yaml --namespace=${env.JOB_NAME};sleep 10;kubectl delete -f collectstaticjob.yaml --namespace=${env.JOB_NAME} || true"
+                sshCommand remote: remote, command: "cd /root/microservice/${env.JOB_NAME};kubectl apply -f loaddatajob.yaml --namespace=${env.JOB_NAME};"
+            }
+        }
+    }
+    post {
+        always {
+           
+            notifyBuild(currentBuild.result)
+        }
+        success {
+	        echo 'posting success to GitLab'
+            updateGitlabCommitStatus(name: 'jenkins-build', state: 'success')
+  	    }
+	    failure {
+	        echo 'postinng failure to GitLab'
+            updateGitlabCommitStatus(name: 'jenkins-build', state: 'failed')
+  	    }
+
+    }
+    options {
+      gitLabConnection('gitlab')
+    }
+    
+}
+def notifyBuild(String buildStatus = 'STARTED') {
+       // build status of null means successful
+       buildStatus =  buildStatus ?: 'SUCCESSFUL'
+     
+       // Default values
+    def colorName = 'RED'
+    def colorCode = '#FF0000'
+    def subject = "${buildStatus}: Job '${env.JOB_NAME} [${env.BUILD_NUMBER}]'"
+    def summary = "${subject} (${env.BUILD_URL})"
+    def details = """<p>STARTED: Job '${env.JOB_NAME} [${env.BUILD_NUMBER}]':</p>
+        <p>Check console output at "<a href="${env.BUILD_URL}">${env.JOB_NAME} [${env.BUILD_NUMBER}]</a>"</p>"""
+ 
+    // Override default values based on build status
+    if (buildStatus == 'STARTED') {
+        color = 'YELLOW'
+        colorCode = '#FFFF00'
+    } else if (buildStatus == 'SUCCESSFUL') {
+        color = 'GREEN'
+        colorCode = '#00FF00'
+    } else {
+        color = 'RED'
+        colorCode = '#FF0000'
+    }
+ 
+    // Send notifications
+    mattermostSend color: colorCode, message: summary 
+
+    }

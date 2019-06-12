@@ -1,0 +1,112 @@
+pipeline {
+    agent any
+        environment {
+            PATH='/usr/local/bin:/usr/bin:/bin'
+        }
+    stages {
+        stage('Checkout'){
+            steps { notifyBuild('STARTED')
+                git branch: 'master', credentialsId: 'e364d583-3cad-4c3c-9645-1d8b7a18eb72', url: 'git@192.168.2.50:cuneytyardim/betikoto.git'
+                updateGitlabCommitStatus(name: 'jenkins-build', state: 'running')
+            }
+        }
+        stage('NPM Setup and Build') {
+            steps {
+                sh 'npm install'
+                sh 'cp -f fix/angular-file-uploader.js node_modules/angular-file-uploader/fesm5/angular-file-uploader.js'
+                sh 'node --max-old-space-size=8192 ./node_modules/@angular/cli/bin/ng build --prod'
+                sh 'sudo rm -rf /var/lib/awx/projects/fronted/dist'
+                sh 'sudo cp -r dist/ /var/lib/awx/projects/fronted/'
+            }
+        }
+        stage('SonarQube analysis') { 
+        steps{
+            withSonarQubeEnv('SonarqubeServer'){
+                sh 'sonar-scanner ' + 
+                '-Dsonar.projectKey=frontend-betikoto-prod ' +
+                '-Dsonar.sources=/var/lib/jenkins/workspace/Frontend-Betikoto-Prod ' +
+                '-Dsonar.scm.provider=git ' +
+                '-Dsonar.sourceEncoding=UTF-8 ' +
+                '-Dsonar.report.path=/tmp/.scannerwork/scanner-report ' +
+                '-Dsonar.host.url=http://192.168.2.50:9200 ' +
+                '-Dsonar.login=868289193af0f8fd905a775a6aeb87336a8380ce '+
+                '"-Dsonar.exclusions=node_modules/**, dist/**, src/assets/**"' 
+            }
+        }
+        }
+        
+        stage('Update Application') {
+            steps{
+            ansibleTower(
+                towerServer: 'ansibletower',
+                templateType: 'job',
+                jobTemplate: 'betikoto-frontend',
+                importTowerLogs: true,
+                inventory: 'production',
+                jobTags: '',
+                skipJobTags: '',
+                limit: '',
+                removeColor: false,
+                verbose: true,
+                credential: '',
+                extraVars: '''---
+                my_var:  "Jenkins Test"'''
+                )
+            }
+        }
+        stage('deploy') {
+            steps {
+            mattermostSend color: '#439FE0', message: "Build Deployed: ${env.JOB_NAME} ${env.BUILD_NUMBER}(<${env.BUILD_URL}|Open>)"
+            sh "docker system prune -f"
+            }
+        }
+    }
+    post {
+        always {
+           
+            notifyBuild(currentBuild.result)
+        }
+        success {
+	        echo 'posting success to GitLab'
+            updateGitlabCommitStatus(name: 'jenkins-build', state: 'success')
+  	    }
+	    failure {
+	        echo 'postinng failure to GitLab'
+            updateGitlabCommitStatus(name: 'jenkins-build', state: 'failed')
+  	    }
+
+    }
+    options {
+      gitLabConnection('gitlab')
+    }
+    
+}
+
+def notifyBuild(String buildStatus = 'STARTED') {
+       // build status of null means successful
+       buildStatus =  buildStatus ?: 'SUCCESSFUL'
+     
+       // Default values
+    def colorName = 'RED'
+    def colorCode = '#FF0000'
+    def subject = "${buildStatus}: Job '${env.JOB_NAME} [${env.BUILD_NUMBER}]'"
+    def summary = "${subject} (${env.BUILD_URL})"
+    def details = """<p>STARTED: Job '${env.JOB_NAME} [${env.BUILD_NUMBER}]':</p>
+        <p>Check console output at "<a href="${env.BUILD_URL}">${env.JOB_NAME} [${env.BUILD_NUMBER}]</a>"</p>"""
+ 
+    // Override default values based on build status
+    if (buildStatus == 'STARTED') {
+        color = 'YELLOW'
+        colorCode = '#FFFF00'
+    } else if (buildStatus == 'SUCCESSFUL') {
+        color = 'GREEN'
+        colorCode = '#00FF00'
+    } else {
+        color = 'RED'
+        colorCode = '#FF0000'
+    }
+ 
+    // Send notifications
+    mattermostSend color: colorCode, message: summary 
+
+    }

@@ -1,0 +1,6 @@
+[submodule "ansible-docker"]
+	path = ansible-docker
+	url = https://github.com/nickjj/ansible-docker.git
+[submodule "kubeadm-ansible"]
+	path = kubeadm-ansible
+	url = https://github.com/kairen/kubeadm-ansible.git
