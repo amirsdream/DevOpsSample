@@ -1,0 +1,40 @@
+apiVersion: extensions/v1beta1
+kind: Deployment
+metadata:
+  name: relation-server
+  labels:
+    app: django-relation-server
+    type: web
+spec:
+  replicas: 2
+  template:
+    metadata:
+      labels:
+        app: django-relation-server
+        type: web
+    spec:
+      containers:
+      - name: django-relation-server-web
+        image: 192.168.2.50:8084/relation:latest
+        imagePullPolicy: Always
+        command: ["gunicorn", "--workers", "1", "--bind", ":8000",
+                  "--log-level", "INFO", "appdir.wsgi:application"]
+        envFrom:
+        - configMapRef:
+            name: django-k8s-starter-config
+        ports:
+        - containerPort: 8000
+
+        volumeMounts:
+          - name: volume-mount
+            mountPath: /var/www/myproject/media
+            subPath: media
+
+      imagePullSecrets:
+      - name: regcredrelation
+
+
+      volumes:
+        - name: volume-mount
+          persistentVolumeClaim:
+            claimName: relation-data-storage-claim

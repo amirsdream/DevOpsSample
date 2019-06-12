@@ -1,0 +1,22 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: django-relation-collectstatic
+  labels:
+    name: django-relation-starter
+    type: collectstatic
+spec:
+  template:
+    spec:
+      containers:
+      - name: django-relation-collectstatic
+        image: 192.168.2.50:8084/relation:latest
+        command: ["python",  "manage.py", "collectstatic", "--noinput"]
+        envFrom:
+        - configMapRef:
+            name: django-relation-config
+      restartPolicy: Never
+      imagePullSecrets:
+      - name: regcredrelation
+  backoffLimit: 4
+

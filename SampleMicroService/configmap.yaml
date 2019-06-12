@@ -1,0 +1,13 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: django-k8s-starter-config
+data:
+  SECRET_KEY: 'u8WJkVjLNt'
+  BROKER_USER: demo  # Make sure this matches the one in rabbit-values.yaml
+  BROKER_PASS: demo  # Make sure this matches the one in rabbit-values.yaml
+  BROKER_HOST: rabbit-rabbitmq # This matches the name we gave the service with helm.
+  DB_HOST: relation-mysql # This matches the name we gave the service with helm
+  DB_NAME: relation # Make sure this matches the one in postgres-values.yaml
+  DB_USER: amir  # Make sure this matches the one in postgres-values.yaml
+  DB_PASS: 123654789Btk  # Make sure this matches the one in postgres-values.yaml

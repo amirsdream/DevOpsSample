@@ -1,0 +1,31 @@
+imageTag: 5.7.25 
+enabled: true
+mysqlUser: amir
+mysqlPassword: 123654789Btk
+mysqlRootPassword: 123654789Btk
+mysqlDatabase: relation
+livenessProbe:
+  initialDelaySeconds: 120
+configurationFiles:
+  mysql.cnf: |-
+    [mysqld]
+    character-set-server = UTF8
+    collation-server = utf8_turkish_ci
+    init-connect = 'SET NAMES utf8'
+    sql-mode=NO_AUTO_CREATE_USER,NO_ENGINE_SUBSTITUTION
+  mysql_custom.cnf: |-
+    [mysqld]
+persistence:
+  enabled: true
+  storageClass: local-storage
+  size: 5Gi RW
+  existingClaim: relation-storage-claim
+#resources:
+#  requests:
+#    cpu: 100m
+#    memory: 200Mi
+#  limits:
+#    cpu: 100m
+#    memory: 200Mi
+service:
+  port: 3306
