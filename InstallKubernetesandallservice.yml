@@ -78,6 +78,15 @@
       environment:
         HELM_HOST: '{{ helm_host }}:{{ helm_port }}'
       register: helm_list_results
+
+    #install Ingress with helm to reverse proxy all services
+    - name: Install Ingress.
+      command: >
+        helm install --name ingress stable/nginx-ingress
+        --set service.type=NodePort
+      environment:
+        HELM_HOST: '{{ helm_host }}:{{ helm_port }}'
+      when: "'ingress' not in helm_list_results.stdout"
     
     #install jenkins with helm
     - name: Install Jenkins.
