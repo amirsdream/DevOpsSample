@@ -8,6 +8,7 @@
 
   roles:
     - { role: ansible-docker }
+  #Install kubernetes with metallb and health check and flannel 
     - { role: kubeadm-ansible }
   #based on cluster master and node ini must change
 
