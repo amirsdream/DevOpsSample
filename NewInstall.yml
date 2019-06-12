@@ -1,0 +1,118 @@
+---
+- hosts: all
+  remote_user: ubuntu
+  become: yes
+  become_method: sudo
+
+  vars:
+    kubernetes_allow_pods_on_master: True
+
+  roles:
+    - geerlingguy.docker
+    - geerlingguy.kubernetes
+
+  tasks:
+    - name: Install pip
+      apt: name=python3-pip state=present
+
+    #install helm 
+    - name: Create Tiller ServiceAccount.
+      k8s:
+        state: present
+        definition:
+          apiVersion: v1
+          kind: ServiceAccount
+          metadata:
+            name: tiller
+            namespace: kube-system
+
+    - name: Apply Tiller RBAC definition.
+      k8s:
+        state: present
+        definition: "{{ lookup('file', 'files/tiller-rbac.yml') | from_yaml }}"
+
+    - name: Retrieve helm binary archive.
+      unarchive:
+        src: https://storage.googleapis.com/kubernetes-helm/helm-v2.10.0-linux-amd64.tar.gz
+        dest: /tmp
+        creates: /usr/local/bin/helm
+        remote_src: yes
+
+    - name: Move helm binary into place.
+      command: >
+        cp /tmp/linux-amd64/helm /usr/local/bin/helm
+        creates=/usr/local/bin/helm
+    - name: Set up Helm and Tiller.
+      command: helm init --service-account tiller
+      register: helm_init_result
+      changed_when: "'already installed' not in helm_init_result.stdout"
+
+    - name: Get Tiller's ClusterIP.
+      k8s:
+        api_version: v1
+        kind: Service
+        name: tiller-deploy
+        namespace: kube-system
+      register: tiller_service
+
+    - name: Set the Helm host and port.
+      set_fact:
+        helm_host: "{{ tiller_service.result.spec.clusterIP }}"
+        helm_port: "{{ tiller_service.result.spec.ports[0].port }}"
+
+    - name: Wait for Tiller to become responsive.
+      wait_for:
+        host: '{{ helm_host }}'
+        port: '{{ helm_port }}'
+        state: started
+
+    - name: List installed Helm charts.
+      command: helm list
+      environment:
+        HELM_HOST: '{{ helm_host }}:{{ helm_port }}'
+      register: helm_list_results
+
+    #install Ingress with helm to reverse proxy all services
+    - name: Install Ingress.
+      command: >
+        helm install --name ingress stable/nginx-ingress
+        --set service.type=NodePort
+      environment:
+        HELM_HOST: '{{ helm_host }}:{{ helm_port }}'
+      when: "'ingress' not in helm_list_results.stdout"
+    
+    #install jenkins with helm
+    - name: Install Jenkins.
+      command: >
+        helm install --name jenkins stable/jenkins
+        --set service.type=NodePort
+      environment:
+        HELM_HOST: '{{ helm_host }}:{{ helm_port }}'
+      when: "'jenkins' not in helm_list_results.stdout"
+
+    #install Sonarqube with helm
+    - name: Install Sonarqube.
+      command: >
+        helm install --name sonarqube stable/sonarqube
+        --set service.type=NodePort
+      environment:
+        HELM_HOST: '{{ helm_host }}:{{ helm_port }}'
+      when: "'sonarqube' not in helm_list_results.stdout"
+
+    #install Nexus Sonatype artifactory with helm
+    - name: Install Sonatype.
+      command: >
+        helm install --name sonatype stable/sonatype-nexus
+        --set service.type=NodePort
+      environment:
+        HELM_HOST: '{{ helm_host }}:{{ helm_port }}'
+      when: "'sonatype' not in helm_list_results.stdout"
+    
+    #install Sentry with helm
+    - name: Install Sentry.
+      command: >
+        helm install --name sentry stable/sentry
+        --set service.type=NodePort
+      environment:
+        HELM_HOST: '{{ helm_host }}:{{ helm_port }}'
+      when: "'sentry' not in helm_list_results.stdout"
