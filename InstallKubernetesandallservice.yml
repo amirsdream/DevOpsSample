@@ -105,3 +105,12 @@
       environment:
         HELM_HOST: '{{ helm_host }}:{{ helm_port }}'
       when: "'sonatype' not in helm_list_results.stdout"
+    
+    #install Sentry with helm
+    - name: Install Sentry.
+      command: >
+        helm install --name sentry stable/sentry
+        --set service.type=NodePort
+      environment:
+        HELM_HOST: '{{ helm_host }}:{{ helm_port }}'
+      when: "'sentry' not in helm_list_results.stdout"
