@@ -8,12 +8,19 @@
     kubernetes_allow_pods_on_master: True
 
   roles:
+    - geerlingguy.swap
     - geerlingguy.docker
     - geerlingguy.kubernetes
 
   tasks:
     - name: Install pip
       apt: name=python3-pip state=present
+    
+    #install helm dependency
+    - name: Ensure Kubernetes client is installed.
+      pip:
+        name: openshift
+        state: present
 
     #install helm 
     - name: Create Tiller ServiceAccount.
