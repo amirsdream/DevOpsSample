@@ -1,6 +1,9 @@
---
+---
 - hosts: all
-  remote_user: root
+  remote_user: ubuntu
+  become: yes
+  become_method: sudo
+
   
   #Install docker and kubernetes on all hosts
   vars_files:
